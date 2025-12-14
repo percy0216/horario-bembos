@@ -15,7 +15,7 @@ const EmployeeList: React.FC<{ employees: Employee[] }> = ({ employees }) => {
             <div style={{ fontWeight: 'bold' }}>{emp.name}</div>
             <div style={{ fontSize: '0.9em', color: '#666', textAlign: 'right' }}>
               <span style={{ backgroundColor: '#e0f7fa', padding: '2px 5px', borderRadius: '3px', marginRight: '5px' }}>{emp.role}</span>
-              <small>Max {emp.maxHoursPerWeek}h/sem</small>
+              <small>Max h/sem</small>
             </div>
           </li>
         ))}
@@ -37,7 +37,7 @@ const ShiftSlotList: React.FC<{ slots: ShiftSlot[] }> = ({ slots }) => {
               <span style={{ color: '#333', fontSize: '0.9em' }}>{slot.startTime} - {slot.endTime}</span>
             </div>
             <div style={{ marginTop: '5px', color: slot.isHighTraffic ? '#d9534f' : '#007bff' }}>
-              👉 Necesitas: **{slot.requiredStaff} personas**
+              👉 Necesitas:  personas**
               {slot.isHighTraffic && <span style={{ marginLeft: '10px', fontWeight: 'bold' }}>🚨 HORA PUNTA</span>}
             </div>
           </li>
