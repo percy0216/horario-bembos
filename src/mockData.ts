@@ -1,21 +1,9 @@
 // src/mockData.ts
 import type { Employee, ShiftSlot } from './types/index';
 
-const ALL_DAYS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+//const ALL_DAYS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
 
-export const MOCK_EMPLOYEES: Employee[] = [
-  { id: '1', name: 'Celia (FT)', role: 'produccion', contractType: 'full-time', availableDays: ALL_DAYS },
-  { id: '2', name: 'Percy (PT)', role: 'produccion', contractType: 'part-time', availableDays: ALL_DAYS },
-  { id: '3', name: 'Alvaro (FT)', role: 'produccion', contractType: 'full-time', availableDays: ALL_DAYS },
-  { id: '4', name: 'Naomi (PT)', role: 'produccion', contractType: 'part-time', availableDays: ALL_DAYS },
-  { id: '5', name: 'Brenda (PT)', role: 'produccion', contractType: 'part-time', availableDays: ALL_DAYS },
-  { id: '6', name: 'Rosbil (PT)', role: 'produccion', contractType: 'part-time', availableDays: ALL_DAYS },
-//   { id: '5', name: 'Judith (PT)', role: 'servicio-tienda', contractType: 'part-time', availableDays: ['lunes', 'miercoles', 'viernes'] },
-//   { id: '6', name: 'Lizeth (FT)', role: 'servicio-tienda', contractType: 'full-time', availableDays: ['lunes', 'martes', 'jueves', 'viernes', 'sabado'] },
-//   { id: '7', name: 'Karina (FT)', role: 'servicio-modulo-tienda', contractType: 'full-time', availableDays: ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'] },
-//   { id: '8', name: 'Luis Eduardo (PT)', role: 'servicio-modulo-open', contractType: 'part-time', availableDays: ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'] },
-  
-];
+export const MOCK_EMPLOYEES: Employee[] = [];
 
 export const SHIFT_SLOTS: ShiftSlot[] = [
   // ----------------------------------------------------

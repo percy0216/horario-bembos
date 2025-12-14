@@ -1,192 +1,145 @@
 // src/Scheduler.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Employee, ShiftSlot, DailySchedule, Role } from './types';
-import { generateSchedule } from './logic'; 
+import { generateSchedule, getEmployeeDailyDuration } from './logic'; 
 
-interface SchedulerProps {
-  slots: ShiftSlot[];
-  employees: Employee[];
-}
+interface SchedulerProps { slots: ShiftSlot[]; employees: Employee[]; }
 
 const DAYS_OF_WEEK = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
 const ROLES: Role[] = ['produccion', 'servicio-tienda', 'servicio-modulo-tienda', 'servicio-modulo-open'];
 
-// ----------------------------------------------------------------------
-// HELPERS DE TIEMPO
-// ----------------------------------------------------------------------
-
-// Restar tiempo: Para calcular a qué hora DEBE entrar alguien para salir al cierre (Cálculo Inverso)
+// Helpers (Se mantienen igual)
+const msToTime = (duration: number) => {
+    const totalMinutes = Math.round(duration / (1000 * 60));
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return { h, m };
+};
 const subtractTime = (endTime: string, subHours: number, subMinutes: number) => {
     const [h, m] = endTime.split(':').map(Number);
-    const date = new Date();
-    date.setHours(h, m, 0, 0);
-    date.setHours(date.getHours() - subHours);
-    date.setMinutes(date.getMinutes() - subMinutes);
-    
-    const newH = date.getHours().toString().padStart(2, '0');
-    const newM = date.getMinutes().toString().padStart(2, '0');
-    return `${newH}:${newM}`;
+    const date = new Date(); date.setHours(h, m, 0, 0); date.setHours(date.getHours() - subHours); date.setMinutes(date.getMinutes() - subMinutes);
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
-
-// Sumar tiempo: Para calcular a qué hora sale alguien que entra en apertura (Cálculo Normal)
 const addTime = (startTime: string, addHours: number, addMinutes: number) => {
     const [h, m] = startTime.split(':').map(Number);
-    const date = new Date();
-    date.setHours(h, m, 0, 0);
-    date.setHours(date.getHours() + addHours);
-    date.setMinutes(date.getMinutes() + addMinutes);
-    
-    const newH = date.getHours().toString().padStart(2, '0');
-    const newM = date.getMinutes().toString().padStart(2, '0');
-    return `${newH}:${newM}`;
+    const date = new Date(); date.setHours(h, m, 0, 0); date.setHours(date.getHours() + addHours); date.setMinutes(date.getMinutes() + addMinutes);
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
 
-// ----------------------------------------------------------------------
-// COMPONENTE PRINCIPAL
-// ----------------------------------------------------------------------
-
 const Scheduler: React.FC<SchedulerProps> = ({ slots, employees }) => {
-  const [schedule, setSchedule] = useState<DailySchedule[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [schedulesByRole, setSchedulesByRole] = useState<Record<string, DailySchedule[]>>({});
+  const [generatingRole, setGeneratingRole] = useState<Role | null>(null);
 
-  const handleGenerate = () => {
-    setLoading(true);
-    // Llamamos a la lógica (asegúrate de haber actualizado logic.ts con la prioridad de cierre también)
-    const generated = generateSchedule(DAYS_OF_WEEK, slots, employees); 
-    setSchedule(generated);
-    setLoading(false);
+  useEffect(() => {
+    const initialState: Record<string, DailySchedule[]> = {};
+    ROLES.forEach(role => initialState[role] = DAYS_OF_WEEK.map(day => ({ day, assignments: [] })));
+    setSchedulesByRole(initialState);
+  }, []);
+
+  const handleGenerateRole = (targetRole: Role) => {
+    setGeneratingRole(targetRole);
+    const roleEmployees = employees.filter(e => e.role === targetRole);
+    const roleSlots = slots.filter(s => (s.requiredStaffByRole[targetRole] || 0) > 0);
+    const newSchedule = generateSchedule(DAYS_OF_WEEK, roleSlots, roleEmployees);
+    setSchedulesByRole(prev => ({ ...prev, [targetRole]: newSchedule }));
+    setTimeout(() => setGeneratingRole(null), 500);
   };
 
-  // Función para renderizar cada celda (Día/Empleado)
-  const renderCell = (day: string, emp: Employee) => {
-    const daySchedule = schedule.find(s => s.day === day);
-    
-    // Si no existe el día en el horario generado
-    if (!daySchedule) return <td colSpan={3} style={{ border: '1px solid black', backgroundColor: '#e0e0e0' }}>-</td>;
+  // ESTILOS DE TABLA MEJORADOS
+  const tableContainerStyle: React.CSSProperties = { overflowX: 'auto', borderRadius: '0 0 8px 8px', border: '1px solid #ddd', borderTop: 'none' };
+  const thStyle: React.CSSProperties = { padding: '10px', border: '1px solid #ddd', whiteSpace: 'nowrap', textAlign: 'center' };
+  const stickyColStyle: React.CSSProperties = { position: 'sticky', left: 0, zIndex: 10, backgroundColor: '#fff', borderRight: '2px solid #ddd' };
 
-    // Buscamos si el empleado tiene turno hoy
+  const renderCell = (day: string, emp: Employee, roleSchedule: DailySchedule[]) => {
+    const daySchedule = roleSchedule.find(s => s.day === day);
+    if (!daySchedule) return <td colSpan={3} style={{ ...thStyle, backgroundColor: '#f0f0f0' }}>-</td>;
+    
     const assignment = daySchedule.assignments.find(a => a.employeeIds.includes(emp.id));
-    
-    // CASO 1: DESCANSO (No asignado)
-    if (!assignment) {
-        return (
-             <td colSpan={3} style={{ border: '1px solid black', backgroundColor: '#ffe0b2', color: '#d32f2f', fontWeight: 'bold', textAlign: 'center' }}>
-                D
-             </td>
-        );
-    }
+    if (!assignment) return <td colSpan={3} style={{ ...thStyle, backgroundColor: '#FFF3E0', color: '#E65100', fontWeight: 'bold' }}>D</td>;
 
-    // Buscamos detalles del turno asignado
     const slot = slots.find(s => s.id === assignment.slotId);
     if (!slot) return null;
 
-    // CASO 2: ASIGNADO (Calculamos Entrada y Salida Exacta)
     const isClosing = slot.name.toLowerCase().includes('cierre');
-    const isFullTime = emp.contractType === 'full-time';
-
-    let startTime = "";
-    let endTime = "";
-    // String fijo de horas según contrato
-    let hoursStr = isFullTime ? "08:45" : "03:50"; 
-
-    if (isClosing) {
-        // --- LÓGICA DE CIERRE (Cálculo Inverso) ---
-        // La hora fija es la SALIDA (ej: 23:30)
-        endTime = slot.endTime; 
-        
-        // Calculamos la entrada restando las horas del contrato
-        if (isFullTime) {
-            startTime = subtractTime(endTime, 8, 45); // Ej: 23:30 - 8h45 = 14:45
-        } else {
-            startTime = subtractTime(endTime, 3, 50); // Ej: 23:30 - 3h50 = 19:40
-        }
-    } else {
-        // --- LÓGICA NORMAL (Apertura/Tarde) ---
-        // La hora fija es la ENTRADA (ej: 09:00)
-        startTime = slot.startTime; 
-
-        // Calculamos la salida sumando las horas del contrato
-        if (isFullTime) {
-            endTime = addTime(startTime, 8, 45);
-        } else {
-            endTime = addTime(startTime, 3, 50);
-        }
-    }
+    const { h, m } = msToTime(getEmployeeDailyDuration(emp));
+    const hoursStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    let start = isClosing ? subtractTime(slot.endTime, h, m) : slot.startTime;
+    let end = isClosing ? slot.endTime : addTime(slot.startTime, h, m);
 
     return (
         <>
-          <td style={{ border: '1px solid black', backgroundColor: 'white', textAlign: 'center' }}>{startTime}</td>
-          <td style={{ border: '1px solid black', backgroundColor: 'white', textAlign: 'center' }}>{endTime}</td>
-          <td style={{ border: '1px solid black', backgroundColor: '#f5f5f5', textAlign: 'center', fontWeight: 'bold', fontSize: '10px' }}>{hoursStr}</td>
+          <td style={{ ...thStyle, minWidth: '50px' }}>{start}</td>
+          <td style={{ ...thStyle, minWidth: '50px' }}>{end}</td>
+          <td style={{ ...thStyle, backgroundColor: '#F5F5F5', fontWeight: 'bold', fontSize: '0.85em' }}>{hoursStr}</td>
         </>
     );
   };
 
   return (
-    <div style={{ fontFamily: 'Arial, sans-serif' }}>
-      <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-        <button 
-            onClick={handleGenerate} 
-            disabled={loading}
-            style={{ 
-                padding: '12px 25px', fontSize: '16px', backgroundColor: '#d32f2f', color: 'white', 
-                border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold',
-                boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
-            }}
-        >
-            {loading ? 'Generando...' : 'CALCULAR HORARIO'}
-        </button>
+    <div>
+      <div style={{ padding: '0 20px', marginBottom: '20px' }}>
+        <h2 style={{ marginTop: 0 }}>📅 Tabla de Turnos Semanal</h2>
+        <p style={{ color: '#666' }}>Genera horarios independientes por cada área.</p>
       </div>
 
       {ROLES.map((role) => {
         const roleEmployees = employees.filter(e => e.role === role);
-        // Si no hay empleados de este rol, saltamos la tabla
         if (roleEmployees.length === 0) return null;
+        const currentRoleSchedule = schedulesByRole[role] || DAYS_OF_WEEK.map(day => ({ day, assignments: [] }));
 
         return (
-          <div key={role} style={{ marginBottom: '40px', overflowX: 'auto', border: '1px solid #999' }}>
-            {/* Título del Área (Negro con letras blancas) */}
-            <div style={{ backgroundColor: 'black', color: 'white', padding: '8px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-              {role.replace(/-/g, ' ')}
+          <div key={role} style={{ marginBottom: '30px', margin: '0 20px 30px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', borderRadius: '8px' }}>
+            {/* CABECERA NEGRA BEMBOS */}
+            <div style={{ backgroundColor: '#212121', color: 'white', padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '8px 8px 0 0' }}>
+              <span style={{ fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>{role.replace(/-/g, ' ')}</span>
+              <button 
+                onClick={() => handleGenerateRole(role)}
+                disabled={generatingRole === role}
+                style={{ 
+                    backgroundColor: generatingRole === role ? '#555' : '#D32F2F', 
+                    color: 'white', border: 'none', borderRadius: '4px', padding: '8px 20px', 
+                    cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+                    transition: 'background 0.2s'
+                }}
+              >
+                {generatingRole === role ? '⏳ ...' : '🔄 Generar'}
+              </button>
             </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', border: '1px solid black' }}>
-              <thead>
-                {/* Fila 1: Días (Amarillo Bembos) */}
-                <tr style={{ backgroundColor: '#ffeb3b' }}>
-                  <th style={{ border: '1px solid black', padding: '5px', minWidth: '150px' }} rowSpan={2}>NOMBRE</th>
-                  {DAYS_OF_WEEK.map(day => (
-                    <th key={day} colSpan={3} style={{ border: '1px solid black', padding: '5px', textTransform: 'uppercase' }}>
-                      {day}
-                    </th>
-                  ))}
-                </tr>
-                {/* Fila 2: Sub-columnas (Entrada | Salida | Horas) */}
-                <tr style={{ backgroundColor: '#fff9c4' }}>
-                  {DAYS_OF_WEEK.map(day => (
-                    <React.Fragment key={day + '-sub'}>
-                      <th style={{ border: '1px solid black', width: '35px', textAlign: 'center' }}>E</th>
-                      <th style={{ border: '1px solid black', width: '35px', textAlign: 'center' }}>S</th>
-                      <th style={{ border: '1px solid black', width: '35px', textAlign: 'center' }}>Hrs</th>
-                    </React.Fragment>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {roleEmployees.map(emp => (
-                  <tr key={emp.id} style={{ backgroundColor: '#e0f2f1' }}>
-                    <td style={{ border: '1px solid black', padding: '5px', fontWeight: 'bold', textAlign: 'left' }}>
-                      {emp.name} <span style={{ fontSize: '9px', color: '#666' }}>({emp.contractType === 'full-time' ? 'FT' : 'PT'})</span>
-                    </td>
+            <div style={tableContainerStyle}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                    <tr style={{ backgroundColor: '#FFEB3B', color: '#333' }}>
+                    <th style={{ ...thStyle, ...stickyColStyle, minWidth: '140px', backgroundColor: '#FFEB3B' }} rowSpan={2}>COLABORADOR</th>
                     {DAYS_OF_WEEK.map(day => (
-                        <React.Fragment key={day}>
-                            {renderCell(day, emp)}
+                        <th key={day} colSpan={3} style={{ ...thStyle, textTransform: 'uppercase', borderBottom: 'none' }}>{day}</th>
+                    ))}
+                    </tr>
+                    <tr style={{ backgroundColor: '#FFF9C4' }}>
+                    {DAYS_OF_WEEK.map(day => (
+                        <React.Fragment key={day + '-sub'}>
+                        <th style={{ ...thStyle, fontSize: '0.8em', width: '40px' }}>E</th>
+                        <th style={{ ...thStyle, fontSize: '0.8em', width: '40px' }}>S</th>
+                        <th style={{ ...thStyle, fontSize: '0.8em', width: '40px' }}>Hrs</th>
                         </React.Fragment>
                     ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </tr>
+                </thead>
+                <tbody>
+                    {roleEmployees.map(emp => (
+                    <tr key={emp.id} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ ...thStyle, ...stickyColStyle, textAlign: 'left', fontWeight: '600' }}>
+                           {emp.name} 
+                           <div style={{ fontSize: '0.75em', color: '#666', fontWeight: 'normal' }}>
+                             {emp.contractType === 'full-time' ? 'Full Time' : 'Part Time'}
+                           </div>
+                        </td>
+                        {DAYS_OF_WEEK.map(day => <React.Fragment key={day}>{renderCell(day, emp, currentRoleSchedule)}</React.Fragment>)}
+                    </tr>
+                    ))}
+                </tbody>
+                </table>
+            </div>
           </div>
         );
       })}

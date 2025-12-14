@@ -1,18 +1,24 @@
 // src/logic.ts
 import type { Employee, ShiftSlot, DailySchedule, Role } from './types';
 
-// Días permitidos para descansar (Lunes a Viernes)
 const REST_CANDIDATES = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
-
-// Prioridad: Domingo primero
 const PRIORITY_DAYS = ['domingo', 'sabado', 'viernes', 'lunes', 'martes', 'miercoles', 'jueves'];
 
-// Duraciones
-const PT_DURATION_MS = (3 * 60 + 50) * 60 * 1000; 
-const FT_DURATION_MS = (8 * 60 + 45) * 60 * 1000; 
-// Márgenes amplios para permitir 6 días de trabajo
-const FULL_TIME_MAX_WEEK_MS = 54 * 60 * 60 * 1000; 
-const PART_TIME_MAX_WEEK_MS = 25 * 60 * 60 * 1000; 
+const WEEKLY_TARGET_FT = 52.5 * 60 * 60 * 1000; 
+const WEEKLY_TARGET_PT = 23 * 60 * 60 * 1000; 
+
+const timeToMins = (time: string) => {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+};
+
+export function getEmployeeDailyDuration(emp: Employee): number {
+    const availableCount = Object.keys(emp.availability).length;
+    const workingDays = availableCount >= 7 ? 6 : availableCount;
+    if (workingDays === 0) return 0;
+    const weeklyTarget = emp.contractType === 'full-time' ? WEEKLY_TARGET_FT : WEEKLY_TARGET_PT;
+    return weeklyTarget / workingDays;
+}
 
 function shuffleArray<T>(array: T[]): T[] {
     for (let i = array.length - 1; i > 0; i--) {
@@ -28,15 +34,12 @@ export const generateSchedule = (
   employees: Employee[]
 ): DailySchedule[] => {
   
-  const schedule: DailySchedule[] = daysOfWeek.map(day => ({
-    day: day,
-    assignments: [] 
-  }));
+  const schedule: DailySchedule[] = daysOfWeek.map(day => ({ day, assignments: [] }));
 
-  const timeWorkedMs: { [employeeId: string]: number } = {};
-  const closingShiftsCount: { [employeeId: string]: number } = {}; 
-  const forcedRestDays: { [employeeId: string]: string[] } = {};
-  const daysAssignedCount: { [employeeId: string]: number } = {};
+  const timeWorkedMs: { [id: string]: number } = {};
+  const closingShiftsCount: { [id: string]: number } = {}; 
+  const forcedRestDays: { [id: string]: string[] } = {};
+  const daysAssignedCount: { [id: string]: number } = {};
 
   employees.forEach(emp => {
     timeWorkedMs[emp.id] = 0;
@@ -46,7 +49,7 @@ export const generateSchedule = (
   });
 
   // ---------------------------------------------------------
-  // 0. PRE-ASIGNACIÓN DE 1 DÍA DE DESCANSO (Aleatorio)
+  // 0. PRE-ASIGNACIÓN DE DESCANSOS (¡Ahora con más aleatoriedad!)
   // ---------------------------------------------------------
   const employeesByRole: { [key in Role]?: Employee[] } = {};
   employees.forEach(emp => {
@@ -55,30 +58,39 @@ export const generateSchedule = (
   });
 
   Object.keys(employeesByRole).forEach((roleKey) => {
-    // Mezclamos para que los días de descanso cambien en cada click
     const group = shuffleArray([...employeesByRole[roleKey as Role]!]);
     const restCounts: { [day: string]: number } = {};
     REST_CANDIDATES.forEach(d => restCounts[d] = 0);
 
     group.forEach(emp => {
-        // Solo 1 día de descanso forzado
-        const daysNeeded = 1; 
+        if (Object.keys(emp.availability).length === 7) {
+            const daysNeeded = 1; 
+            for (let i = 0; i < daysNeeded; i++) {
+                // Buscamos días posibles
+                let availableDays = REST_CANDIDATES
+                    .filter(d => !forcedRestDays[emp.id].includes(d))
+                    .filter(d => restCounts[d] < 2); 
 
-        for (let i = 0; i < daysNeeded; i++) {
-            const availableDays = REST_CANDIDATES
-                .filter(d => !forcedRestDays[emp.id].includes(d))
-                .filter(d => restCounts[d] < 2); // Máximo 2 descansando el mismo día
-
-            if (availableDays.length > 0) {
-                availableDays.sort((a, b) => restCounts[a] - restCounts[b]);
-                const bestDay = availableDays[0]; 
-                forcedRestDays[emp.id].push(bestDay);
-                restCounts[bestDay]++;
-            } else {
-                // Fallback si todo está lleno
-                const fallbackDay = REST_CANDIDATES.sort((a, b) => restCounts[a] - restCounts[b])[0];
-                forcedRestDays[emp.id].push(fallbackDay);
-                restCounts[fallbackDay]++;
+                if (availableDays.length > 0) {
+                    // CAMBIO CLAVE: Barajamos los días disponibles antes de ordenar por ocupación.
+                    // Esto rompe el empate: si Lunes y Martes están vacíos, elige uno al azar.
+                    availableDays = shuffleArray(availableDays);
+                    
+                    availableDays.sort((a, b) => restCounts[a] - restCounts[b]);
+                    
+                    const bestDay = availableDays[0]; 
+                    forcedRestDays[emp.id].push(bestDay);
+                    restCounts[bestDay]++;
+                } else {
+                    // Fallback con aleatoriedad también
+                    let fallbackDays = REST_CANDIDATES.filter(d => !forcedRestDays[emp.id].includes(d));
+                    fallbackDays = shuffleArray(fallbackDays);
+                    fallbackDays.sort((a, b) => restCounts[a] - restCounts[b]);
+                    
+                    const fallback = fallbackDays[0];
+                    forcedRestDays[emp.id].push(fallback);
+                    restCounts[fallback]++;
+                }
             }
         }
     });
@@ -112,20 +124,25 @@ export const generateSchedule = (
 
     orderedSlots.forEach(slot => {
       const isClosingShift = slot.name.toLowerCase().includes('cierre');
-      
-      // CORRECCIÓN DEL ERROR DE TYPESCRIPT: Usar Partial
       const currentRequiredStaff: Partial<{ [key in Role]: number }> = {};
       
       for (const role in slot.requiredStaffByRole) {
         const roleKey = role as Role; 
         let required = slot.requiredStaffByRole[roleKey] || 0;
 
-        if (slot.name.includes('Cierre') && roleKey === 'produccion' && ['lunes', 'martes', 'miercoles'].includes(day)) {
-            required = 2;
+        // --- CORRECCIÓN DE REGLAS DE CIERRE ---
+        // Producción: Lunes a Viernes son 2.
+        if (slot.name.includes('Cierre') && roleKey === 'produccion') {
+            if (['lunes', 'martes', 'miercoles', 'jueves', 'viernes'].includes(day)) {
+                required = 2;
+            }
         }
+        
+        // Modulo Tienda: Sabado y Domingo son 2, el resto 1.
         if (slot.name.includes('Cierre') && roleKey === 'servicio-modulo-tienda') {
             required = ['sabado', 'domingo'].includes(day) ? 2 : 1;
         }
+
         currentRequiredStaff[roleKey] = required;
       }
 
@@ -137,7 +154,12 @@ export const generateSchedule = (
 
         let eligibleCandidates = employees
           .filter(emp => emp.role === role) 
-          .filter(emp => emp.availableDays.includes(day)) 
+          .filter(emp => !!emp.availability[day]) 
+          .filter(emp => {
+             const empRange = emp.availability[day];
+             if (!empRange) return false;
+             return timeToMins(slot.startTime) >= timeToMins(empRange.start);
+          })
           .filter(emp => !forcedRestDays[emp.id].includes(day))
           .filter(emp => !assignedToday.has(emp.id)) 
           .filter(emp => !assignedEmployeeIds.includes(emp.id))
@@ -146,53 +168,34 @@ export const generateSchedule = (
              return true; 
           })
           .filter(emp => {
-             const maxMs = emp.contractType === 'full-time' ? FULL_TIME_MAX_WEEK_MS : PART_TIME_MAX_WEEK_MS;
-             const shiftDuration = emp.contractType === 'full-time' ? FT_DURATION_MS : PT_DURATION_MS;
+             const shiftDuration = getEmployeeDailyDuration(emp);
+             const maxMs = (emp.contractType === 'full-time' ? WEEKLY_TARGET_FT : WEEKLY_TARGET_PT) + (60*60*1000); 
              return timeWorkedMs[emp.id] + shiftDuration <= maxMs; 
           });
 
-        // -----------------------------------------------------------------------
-        // PRIORIDAD: HAMBRIENTOS PRIMERO
-        // -----------------------------------------------------------------------
-        
-        // 1. Mezclamos primero (Aleatoriedad)
         eligibleCandidates = shuffleArray(eligibleCandidates);
-
-        // 2. Ordenamos por necesidad (Justicia para llegar a 6 días)
+        
         eligibleCandidates.sort((a, b) => {
-            // Prioridad absoluta: Quien tenga MENOS días trabajados va primero
             const diffDays = daysAssignedCount[a.id] - daysAssignedCount[b.id];
-            if (diffDays !== 0) return diffDays; // Ascendente
-
-            // Si tienen los mismos días, y es cierre, el que tenga menos cierres
-            if (isClosingShift) {
-                return closingShiftsCount[a.id] - closingShiftsCount[b.id];
-            }
+            if (diffDays !== 0) return diffDays; 
+            if (isClosingShift) return closingShiftsCount[a.id] - closingShiftsCount[b.id];
             return 0;
         });
           
         for (let i = 0; i < required; i++) {
           const candidate = eligibleCandidates.shift();
-          
           if (candidate) {
             assignedEmployeeIds.push(candidate.id);
             assignedToday.add(candidate.id);
             daysAssignedCount[candidate.id]++; 
-
-            const durationToAdd = candidate.contractType === 'full-time' ? FT_DURATION_MS : PT_DURATION_MS;
+            const durationToAdd = getEmployeeDailyDuration(candidate);
             timeWorkedMs[candidate.id] += durationToAdd;
-            
-            if (isClosingShift) {
-                closingShiftsCount[candidate.id] += 1;
-            }
+            if (isClosingShift) closingShiftsCount[candidate.id] += 1;
           } 
         }
       }
 
-      dailySchedule.assignments.push({
-        slotId: slot.id,
-        employeeIds: assignedEmployeeIds
-      });
+      dailySchedule.assignments.push({ slotId: slot.id, employeeIds: assignedEmployeeIds });
     });
   });
 

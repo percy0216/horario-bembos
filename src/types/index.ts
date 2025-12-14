@@ -1,36 +1,41 @@
+// src/types/index.ts
+
 export type Role = 'produccion' | 'servicio-tienda' | 'servicio-modulo-tienda' | 'servicio-modulo-open';
 
-export type ContractType = 'full-time' | 'part-time'; // Añadimos esto para gestionar las horas
+export type ContractType = 'full-time' | 'part-time';
+
+// ESTA ERA LA INTERFAZ QUE FALTABA EXPORTAR
+export interface TimeRange {
+  start: string; // Ej: "08:00"
+  end: string;   // Ej: "23:59"
+}
 
 export interface Employee {
   id: string;
   name: string;
   role: Role;
-  contractType: ContractType; // Nuevo: Para diferenciar las horas
-  // Horas que el empleado puede trabajar CADA DÍA (ej: 9:00 - 17:45)
-  // Lo manejaremos dentro del algoritmo usando el ContractType.
-  availableDays: string[]; 
-  // Las horas máximas semanales serán calculadas automáticamente.
+  contractType: ContractType;
+  
+  // Actualizado: Ahora usamos un mapa de días con rangos de hora
+  // Si un día no está en este objeto, significa que es DESCANSO FIJO
+  availability: { [day: string]: TimeRange }; 
 }
 
-// Un "Slot" es un bloque de horario, ej: "Turno Mañana" o "Hora Punta"
 export interface ShiftSlot {
   id: string;
   name: string; 
-  startTime: string;   // Ej: "09:00"
-  endTime: string;     // Ej: "12:00"
+  startTime: string;   
+  endTime: string;     
   isHighTraffic: boolean; 
-  // NUEVO: Requerimientos por rol para este slot (ej: 1 Cajero, 2 Cocineros)
   requiredStaffByRole: {
-    [key in Role]?: number; // Usamos la interfaz Role aquí
+    [key in Role]?: number; 
   }
 }
 
-// Así se verá el horario final generado
 export interface DailySchedule {
-  day: string; // "Lunes"
+  day: string; 
   assignments: {
     slotId: string;
-    employeeIds: string[]; // IDs de los empleados asignados aquí
+    employeeIds: string[]; 
   }[];
 }
